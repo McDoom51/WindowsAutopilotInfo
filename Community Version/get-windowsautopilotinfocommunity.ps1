@@ -35,6 +35,7 @@ v4.0.10 - Added array for group
 v4.0.11 - Added cert based MsGraph connection
 v5.0.0 - Added support for device identifiers
 v5.0.2 - Removed dots and commas from make and model
+v5.0.3 - Added support for already installed/local modules
 #>
 
 <#
@@ -151,6 +152,18 @@ Begin {
     # If online, make sure we are able to authenticate
     if ($Online) {
 
+        # Module array (always needed)
+        $moduleArray = @(
+            "microsoft.graph.authentication",
+            "Microsoft.Graph.Identity.DirectoryManagement"
+        )
+
+        # Add microsoft.graph.groups if $AddToGroup is true
+        if ($AddToGroup) {
+            $moduleArray += "microsoft.graph.groups"
+        }
+
+        <#
         # Get NuGet
         $provider = Get-PackageProvider NuGet -ErrorAction Ignore
         if (-not $provider) {
@@ -183,6 +196,58 @@ Begin {
             Install-Module Microsoft.Graph.Identity.DirectoryManagement -Force -ErrorAction Ignore
         }
         Import-Module microsoft.graph.Identity.DirectoryManagement -Scope Global
+        #>
+
+        # Check if all modules can be imported
+        $allModulesImported = $true
+        foreach ($moduleName in $moduleArray) {
+            try {
+                Import-Module $moduleName -PassThru -ErrorAction Stop | Out-Null
+            } 
+            catch {
+                $allModulesImported = $false
+                break
+            }
+        }
+
+        # Only proceed with NuGet installation if some modules could not be imported
+        if (-not $allModulesImported) {
+            # Get NuGet
+            $provider = Get-PackageProvider NuGet -ErrorAction Ignore
+            if (-not $provider) {
+                Write-Host "Installing provider NuGet"
+                Find-PackageProvider -Name NuGet -ForceBootstrap -IncludeDependencies
+            }
+
+            # Install missing modules
+            foreach ($moduleName in $moduleArray) {
+                if ($moduleName -eq "microsoft.graph.authentication") {
+                    # Install microsoft.graph.authentication with -MaximumVersion 2.9.1
+                    $module = Import-Module $moduleName -PassThru -ErrorAction Ignore
+                    if (-not $module) {
+                        Write-Host "Installing module $moduleName with -MaximumVersion 2.9.1"
+                        Install-Module $moduleName -Force -ErrorAction Ignore -MaximumVersion 2.9.1
+                    }
+                }
+                else {
+                    # Install other modules without a version restriction
+                    $module = Import-Module $moduleName -PassThru -ErrorAction Ignore
+                    if (-not $module) {
+                        Write-Host "Installing module $moduleName"
+                        Install-Module $moduleName -Force -ErrorAction Ignore
+                    }
+                }
+                Import-Module $moduleName -Scope Global
+            }
+        }
+        else {
+            Write-Host "All required modules are already available."
+        }
+
+        # Additional Import for microsoft.graph.groups if $AddToGroup is true
+        if ($AddToGroup) {
+            Import-Module microsoft.graph.groups -Scope Global
+        }
 
         ##Add functions from module
         Function Connect-ToGraph {
